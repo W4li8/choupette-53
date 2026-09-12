@@ -2,10 +2,43 @@
 #include <Wire.h>
 #include <VL53L0X.h>
 
-// DFRobot/Gravity VL53L0X single-point ToF sensor over I2C, default
-// address 0x29 (matches this sensor's factory default - no jumper/init
-// override needed for a single unit on the bus).
-VL53L0X pointSensor;
+// 3x DFRobot/Gravity VL53L0X single-point ToF sensors (left/middle/
+// right) sharing one I2C bus. They all boot at the same factory-default
+// address (0x29), so EVERY sensor needs its own XSHUT (shutdown) pin -
+// including "middle" here, even though its address never changes:
+// VL53L0X address reassignment is volatile (lives in SRAM, not flash),
+// so it's lost on every power-cycle and this whole sequence must run
+// on every boot. If middle's XSHUT weren't controllable, it would still
+// be sitting at 0x29 while left/right are being isolated and reassigned
+// - a real bus collision, and worse, a risk that middle silently
+// accepts the same address-change command intended for whichever
+// sensor is being reassigned at that moment. Hold every sensor in
+// reset, bring them up one at a time (order doesn't matter), and
+// reassign each while it's the only one live at 0x29. XSHUT is pulled
+// HIGH (active) by default on this breakout; driving it LOW powers the
+// sensor down/holds it in reset.
+//
+// XSHUT wired to the SPI header's SS/SCK/MISO pins (5/18/19 - unused
+// here, freeing up 25/26/32 for servos later). See include/pins.h
+// PIN_SPI_SS, PIN_SPI_SCK, PIN_SPI_MISO.
+//
+// GPIO5 is an ESP32 strapping pin (SDIO slave timing select at boot) -
+// fairly benign as strapping pins go, and since this breakout's XSHUT
+// is pulled HIGH by default and we only drive it low from firmware
+// (well after the ESP32's own boot-time strap sampling), this should be
+// safe in practice.
+struct PointSensorConfig {
+  uint8_t xshutPin;
+  uint8_t address;
+};
+
+PointSensorConfig sensorConfigs[] = {
+  {5, 0x28},   // left
+  {18, 0x29},  // middle - kept at default, but still needs XSHUT control (see above)
+  {19, 0x30},  // right
+};
+const int numPointSensors = 3;
+VL53L0X pointSensors[numPointSensors];
 
 const int OBSTACLE_THRESHOLD_MM = 100;  // 10cm
 const int SENSOR_RETRY_INTERVAL_MS = 500;
@@ -17,20 +50,48 @@ const int SENSOR_RETRY_INTERVAL_MS = 500;
 // as a safe/clear reading (nothing within range), not as "no data" -
 // it's already >= OBSTACLE_THRESHOLD_MM so no separate check is needed;
 // only a real timeout (no data at all) counts as "no reading" below.
+//
+// Max reading rate over I2C (ST datasheet): continuous ranging can go
+// up to ~50Hz (20ms/reading) at a reduced timing budget; the default
+// timing budget used here (Pololu library default, ~33ms) gives ~30Hz.
+// Actual achieved rate is measured and printed under SERIAL_DEBUG below
+// rather than assumed, since I2C bus contention across 3 sensors plus
+// our own loop overhead could bring it down further.
 
-bool sensorReady = false;
+bool allSensorsReady = false;
 unsigned long lastInitAttemptMs = 0;
 
-// (Re)initializes the sensor. Returns true once it's ready to read.
-// Called from setup() and retried from loop() on failure, so a sensor
-// plugged in after boot (or power-cycled) recovers without a reflash.
-bool tryInitSensor() {
+// Brings up all 3 sensors and gives each its own address. All-or-
+// nothing: if any sensor fails to respond, every XSHUT is driven back
+// LOW and the whole sequence is retried from scratch next call - never
+// left half-done, since a partially-addressed sensor would still be
+// sitting at the shared default 0x29 and collide with the next one
+// brought out of reset.
+bool tryInitAllSensors() {
   Wire.begin();
-  if (!pointSensor.init()) {
-    return false;
+
+  for (int i = 0; i < numPointSensors; i++) {
+    pinMode(sensorConfigs[i].xshutPin, OUTPUT);
+    digitalWrite(sensorConfigs[i].xshutPin, LOW);
   }
-  pointSensor.setTimeout(500);
-  pointSensor.startContinuous();
+  delay(10);  // XSHUT low long enough to fully reset every sensor
+
+  for (int i = 0; i < numPointSensors; i++) {
+    digitalWrite(sensorConfigs[i].xshutPin, HIGH);
+    delay(10);  // boot time before it'll ACK on the bus
+
+    pointSensors[i].setTimeout(500);
+    if (!pointSensors[i].init()) {
+      for (int j = 0; j < numPointSensors; j++) {
+        digitalWrite(sensorConfigs[j].xshutPin, LOW);
+      }
+      return false;
+    }
+    if (sensorConfigs[i].address != 0x29) {
+      pointSensors[i].setAddress(sensorConfigs[i].address);
+    }
+    pointSensors[i].startContinuous();
+  }
   return true;
 }
 
@@ -39,44 +100,73 @@ void setup() {
   Serial.begin(115200);
 #endif
   initMotorsAndLeds();
-  sensorReady = tryInitSensor();
+  allSensorsReady = tryInitAllSensors();
   lastInitAttemptMs = millis();
 }
 
 void loop() {
-  if (!sensorReady) {
+  if (!allSensorsReady) {
     if (millis() - lastInitAttemptMs >= SENSOR_RETRY_INTERVAL_MS) {
-      sensorReady = tryInitSensor();
+      allSensorsReady = tryInitAllSensors();
       lastInitAttemptMs = millis();
 #ifdef SERIAL_DEBUG
-      Serial.println(sensorReady ? "sensor init OK" : "sensor init failed, retrying...");
+      Serial.println(allSensorsReady ? "all sensors init OK" : "sensor init failed, retrying...");
 #endif
     }
     stopMotorsAndSetRed();  // no reading yet - stay stopped
     return;
   }
 
-  uint16_t distanceMm = pointSensor.readRangeContinuousMillimeters();
-
-  // Timeout, or a bogus/zero reading, is treated the same as "no
-  // reading" per spec: stop and go red until real values resume. A
-  // timeout also means the sensor may have dropped off the bus -
-  // re-probe it next loop by clearing sensorReady.
-  if (pointSensor.timeoutOccurred()) {
 #ifdef SERIAL_DEBUG
-    Serial.println("sensor timeout");
+  static unsigned long readsThisWindow = 0;
+  static unsigned long windowStartMs = 0;
 #endif
-    sensorReady = false;
-    stopMotorsAndSetRed();
-    return;
+
+  bool obstacleDetected = false;
+  for (int i = 0; i < numPointSensors; i++) {
+    uint16_t distanceMm = pointSensors[i].readRangeContinuousMillimeters();
+
+    // Timeout means we've lost a sensor - re-run the whole addressing
+    // sequence next loop rather than trust the other two's addresses
+    // are still intact (e.g. after a shared power blip).
+    if (pointSensors[i].timeoutOccurred()) {
+#ifdef SERIAL_DEBUG
+      Serial.print("sensor ");
+      Serial.print(i);
+      Serial.println(" timeout");
+#endif
+      allSensorsReady = false;
+      stopMotorsAndSetRed();
+      return;
+    }
+
+#ifdef SERIAL_DEBUG
+    Serial.print("sensor");
+    Serial.print(i);
+    Serial.print("_mm=");
+    Serial.print(distanceMm);
+    Serial.print("  ");
+#endif
+
+    if (distanceMm < OBSTACLE_THRESHOLD_MM) {
+      obstacleDetected = true;
+    }
   }
 
 #ifdef SERIAL_DEBUG
-  Serial.print("distance_mm=");
-  Serial.println(distanceMm);
+  Serial.println();
+  readsThisWindow++;
+  unsigned long now = millis();
+  if (now - windowStartMs >= 1000) {
+    Serial.print("measured rate: ");
+    Serial.print(readsThisWindow * 1000.0 / (now - windowStartMs));
+    Serial.println(" reads/sec (all 3 sensors, per loop)");
+    readsThisWindow = 0;
+    windowStartMs = now;
+  }
 #endif
 
-  if (distanceMm < OBSTACLE_THRESHOLD_MM) {
+  if (obstacleDetected) {
     stopMotorsAndSetRed();
   } else {
     runNormalCycleStep();

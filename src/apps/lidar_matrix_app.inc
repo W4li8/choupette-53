@@ -12,6 +12,14 @@ uint16_t matrixBuf[MATRIX_ZONES];
 const int OBSTACLE_THRESHOLD_MM = 100;  // 10cm
 const int SENSOR_RETRY_INTERVAL_MS = 500;
 
+// Max reading rate over I2C: the raw VL53L7CX chip (ST datasheet) tops
+// out at 15Hz in 8x8 mode (60Hz in 4x4). But that's the chip's own
+// limit - this board's actual interface is the RP2040's custom
+// request/response packet protocol (see dfrobot_matrix_lidar.inc),
+// which adds its own per-call latency (a full send+poll-for-response
+// round trip) on top of that. The achieved rate is measured and printed
+// under SERIAL_DEBUG below rather than assumed from the chip spec alone.
+
 bool sensorReady = false;
 unsigned long lastInitAttemptMs = 0;
 
