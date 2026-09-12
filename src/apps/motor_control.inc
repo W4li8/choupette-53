@@ -60,14 +60,18 @@ const float SUPPLY_VOLTAGE_V = 9.0;      // barrel jack supply
 const float MOTOR_MIN_VOLTAGE_V = 3.0;   // slowest speed we drive to
 const float MOTOR_MAX_VOLTAGE_V = 6.0;   // motor's rated voltage - never exceed average
 
-// TB67H450FNG datasheet: standby-release (both IN pins were LOW -> one
-// goes HIGH) takes up to 30us to actually start driving the output, so
-// every PWM HIGH pulse needs to clear that floor with margin. The
-// shortest pulse of the whole speed range comes from the lowest duty
-// (MOTOR_MIN_VOLTAGE_V), so frequency is picked to keep that pulse
-// WAKE_PULSE_MARGIN above the floor - lower frequency (longer period)
-// gives more margin at a given duty; raising frequency shrinks pulses
-// and eats the margin, it doesn't help.
+// TB67H450FNG datasheet: both IN pins held LOW for >=1ms(typ.) triggers
+// standby; waking from it then takes up to 30us. NOTE: every PWM period
+// we've used (past and current) is <=122us, two orders of magnitude
+// under that 1ms threshold - so continuous PWM switching should never
+// actually trigger standby entry in the first place, at any duty or
+// frequency tried so far. The 30us wake time governs the transition out
+// of a genuinely idle driver (e.g. before the first PWM edge after
+// power-up), not every low period within a running PWM cycle. An
+// earlier version of this file derived a ~9.3kHz frequency ceiling from
+// misapplying that spec to steady-state operation - kept below as
+// PWM_FREQ_MAX_SAFE_HZ for reference, but PWM_FREQ_HZ is no longer
+// clamped to it pending an actual hardware test (see below).
 const float WAKE_PULSE_FLOOR_US = 30.0;
 const float WAKE_PULSE_MARGIN = 1.20;  // 20% headroom over the floor
 
@@ -75,21 +79,25 @@ const int PWM_RESOLUTION_BITS = 8;
 const int DUTY_MIN = round((MOTOR_MIN_VOLTAGE_V / SUPPLY_VOLTAGE_V) * 255);
 const int DUTY_MAX = round((MOTOR_MAX_VOLTAGE_V / SUPPLY_VOLTAGE_V) * 255);
 
-// Max frequency that still keeps the min-duty (slowest speed) pulse
-// WAKE_PULSE_MARGIN above the floor: period_us >= (FLOOR*MARGIN)/duty_min,
-// freq = 1e6/period_us. Anything at or below this is safe re: wake time.
 const int PWM_FREQ_MAX_SAFE_HZ = (int)(1e6 / ((WAKE_PULSE_FLOOR_US * WAKE_PULSE_MARGIN) /
                                                (MOTOR_MIN_VOLTAGE_V / SUPPLY_VOLTAGE_V)));
-// = 9259Hz.
+// = 9259Hz - likely overly conservative per the note above, not applied below.
 
-// 2x LEDC's 4096-tick reference, comfortably under the ceiling above (more
-// margin than requested: 40.7us pulse at min duty vs the 30us*1.2=36us
-// ask). Audible-range - motors will have a PWM whine at this frequency,
-// traded for wake-pulse margin across the full 3-6V speed range. Doesn't
-// change peak voltage the motor sees (that's always the full supply
-// during each HIGH pulse, at any frequency) - only DUTY_MIN/DUTY_MAX
-// above control the average voltage the motor is rated for.
-const int PWM_FREQ_HZ = 8192;
+// Tested at 32768Hz (fully ultrasonic): motors spun uniformly slower
+// than at 8192Hz despite identical commanded duty, at every point in
+// the ramp, not just DUTY_MIN. That disproves "no constraint at all" -
+// while the specific 1ms-standby-entry condition genuinely can't be
+// triggering (period is still <<1ms), something else with similar
+// effect is real: most likely a fixed turn-on/propagation delay per
+// pulse in the driver's output stage, which eats a proportionally
+// larger bite out of a ~20-30us pulse (32768Hz) than a ~40-80us one
+// (8192Hz), even at the same duty%.
+//
+// Settled on 16384Hz after hardware A/B testing: inaudible (unlike
+// 12288Hz, which was audible again) and the speed loss vs. the
+// full-speed 8192Hz baseline was judged an acceptable trade for
+// silence. Pulse widths 20.3-40.7us across DUTY_MIN-DUTY_MAX.
+const int PWM_FREQ_HZ = 16384;
 
 // Repeating cycle: hold low (3V) -> ramp up -> hold high (6V) -> ramp
 // down -> repeat. LED brightness tracks how far duty is through its own
