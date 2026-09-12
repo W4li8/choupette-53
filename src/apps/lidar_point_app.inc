@@ -2,21 +2,29 @@
 #include <Wire.h>
 #include <VL53L0X.h>
 
-// 3x DFRobot/Gravity VL53L0X single-point ToF sensors (left/middle/
-// right) sharing one I2C bus. They all boot at the same factory-default
-// address (0x29), so EVERY sensor needs its own XSHUT (shutdown) pin -
-// including "middle" here, even though its address never changes:
-// VL53L0X address reassignment is volatile (lives in SRAM, not flash),
-// so it's lost on every power-cycle and this whole sequence must run
-// on every boot. If middle's XSHUT weren't controllable, it would still
-// be sitting at 0x29 while left/right are being isolated and reassigned
-// - a real bus collision, and worse, a risk that middle silently
-// accepts the same address-change command intended for whichever
-// sensor is being reassigned at that moment. Hold every sensor in
-// reset, bring them up one at a time (order doesn't matter), and
-// reassign each while it's the only one live at 0x29. XSHUT is pulled
-// HIGH (active) by default on this breakout; driving it LOW powers the
-// sensor down/holds it in reset.
+// DFRobot/Gravity VL53L0X single-point ToF sensor(s) sharing one I2C
+// bus. They all boot at the same factory-default address (0x29), so
+// with more than one on the bus, EVERY sensor needs its own XSHUT
+// (shutdown) pin - including one left at the default address, even
+// though its address never changes: VL53L0X address reassignment is
+// volatile (lives in SRAM, not flash), so it's lost on every power-
+// cycle and this whole sequence must run on every boot. If a sensor
+// staying at 0x29's XSHUT weren't controllable, it would still be
+// sitting at 0x29 while others are being isolated and reassigned - a
+// real bus collision, and worse, a risk that it silently accepts the
+// same address-change command intended for whichever sensor is being
+// reassigned at that moment. Hold every sensor in reset, bring them up
+// one at a time (order doesn't matter), and reassign each while it's
+// the only one live at 0x29. XSHUT is pulled HIGH (active) by default
+// on this breakout; driving it LOW powers the sensor down/holds it in
+// reset.
+//
+// A sensor with no XSHUT wired at all (xshutPin = -1 below) is assumed
+// always powered/active and left at whatever address it's already at
+// - fine as long as it's the only sensor on the bus, or the only one
+// sitting at that address. Currently only one sensor is wired (default
+// address, no XSHUT), the other two physical slots below are commented
+// out pending rewiring.
 //
 // XSHUT wired to the SPI header's SS/SCK/MISO pins (5/18/19 - unused
 // here, freeing up 25/26/32 for servos later). See include/pins.h
@@ -28,16 +36,16 @@
 // (well after the ESP32's own boot-time strap sampling), this should be
 // safe in practice.
 struct PointSensorConfig {
-  uint8_t xshutPin;
+  int8_t xshutPin;  // -1 = not wired (sensor always active, no reset control)
   uint8_t address;
 };
 
 PointSensorConfig sensorConfigs[] = {
-  {5, 0x28},   // left
-  {18, 0x29},  // middle - kept at default, but still needs XSHUT control (see above)
-  {19, 0x30},  // right
+  {-1, 0x29},  // only sensor currently wired - default address, no XSHUT
+  // {5, 0x28},   // left - not wired right now
+  // {19, 0x30},  // right - not wired right now
 };
-const int numPointSensors = 3;
+const int numPointSensors = 1;
 VL53L0X pointSensors[numPointSensors];
 
 const int OBSTACLE_THRESHOLD_MM = 100;  // 10cm
@@ -61,28 +69,35 @@ const int SENSOR_RETRY_INTERVAL_MS = 500;
 bool allSensorsReady = false;
 unsigned long lastInitAttemptMs = 0;
 
-// Brings up all 3 sensors and gives each its own address. All-or-
-// nothing: if any sensor fails to respond, every XSHUT is driven back
-// LOW and the whole sequence is retried from scratch next call - never
-// left half-done, since a partially-addressed sensor would still be
-// sitting at the shared default 0x29 and collide with the next one
-// brought out of reset.
+// Brings up every sensor and gives each its own address. All-or-
+// nothing: if any sensor fails to respond, every controllable XSHUT is
+// driven back LOW and the whole sequence is retried from scratch next
+// call - never left half-done, since a partially-addressed sensor
+// would still be sitting at the shared default 0x29 and collide with
+// the next one brought out of reset. Sensors with no XSHUT wired
+// (xshutPin = -1) are skipped in the reset/enable steps - they're
+// always powered and assumed to already be alone at their configured
+// address.
 bool tryInitAllSensors() {
   Wire.begin();
 
   for (int i = 0; i < numPointSensors; i++) {
+    if (sensorConfigs[i].xshutPin < 0) continue;
     pinMode(sensorConfigs[i].xshutPin, OUTPUT);
     digitalWrite(sensorConfigs[i].xshutPin, LOW);
   }
   delay(10);  // XSHUT low long enough to fully reset every sensor
 
   for (int i = 0; i < numPointSensors; i++) {
-    digitalWrite(sensorConfigs[i].xshutPin, HIGH);
-    delay(10);  // boot time before it'll ACK on the bus
+    if (sensorConfigs[i].xshutPin >= 0) {
+      digitalWrite(sensorConfigs[i].xshutPin, HIGH);
+      delay(10);  // boot time before it'll ACK on the bus
+    }
 
     pointSensors[i].setTimeout(500);
     if (!pointSensors[i].init()) {
       for (int j = 0; j < numPointSensors; j++) {
+        if (sensorConfigs[j].xshutPin < 0) continue;
         digitalWrite(sensorConfigs[j].xshutPin, LOW);
       }
       return false;

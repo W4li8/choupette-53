@@ -1,0 +1,20 @@
+[workspace]
+name = "choupette-53"
+channels = ["conda-forge"]
+platforms = ["linux-aarch64"]
+version = "0.1.0"
+
+[feature.ros2]
+channels = ["robostack-jazzy", "conda-forge"]
+platforms = ["linux-aarch64"]
+
+[feature.ros2.dependencies]
+python = "3.12.*"
+ros-jazzy-ros-base = "*"
+
+[feature.platformio.dependencies]
+platformio = "*"
+
+[environments]
+ros2 = { features = ["ros2"], no-default-feature = true }
+platformio = { features = ["platformio"], no-default-feature = true }
