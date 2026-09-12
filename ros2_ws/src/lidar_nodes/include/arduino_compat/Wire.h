@@ -5,6 +5,17 @@
 // write(buf, len), write(byte), endTransmission()/(bool),
 // requestFrom(addr, len, bool), read(). Not a general Wire.h
 // replacement.
+//
+// endTransmission(false) means a real repeated start: this Tegra I2C
+// controller (/dev/i2c-7) was found to NOT reliably support a register
+// read done as two independent ioctl(I2C_RDWR) calls (write-register-
+// pointer, then a separate read) - a raw register read (e.g. VL53L0X's
+// fixed model-ID register) would silently come back wrong that way, but
+// reads correctly when the write+read are issued as ONE combined
+// i2c_rdwr call. endTransmission(false) defers the buffered write so
+// the next requestFrom() can combine them; endTransmission(true)
+// (the default, and what dfrobot_matrix_lidar.inc always uses) sends
+// immediately, unchanged from before.
 #pragma once
 
 #include <cstddef>
@@ -26,10 +37,13 @@ class TwoWire {
   int read();
 
  private:
+  void FlushPendingWrite();
+
   std::string device_path_;
   int fd_ = -1;
   uint8_t address_ = 0;
   std::vector<uint8_t> write_buf_;
+  bool write_pending_ = false;  // true between endTransmission(false) and the next requestFrom()
   std::vector<uint8_t> read_buf_;
   size_t read_pos_ = 0;
 };

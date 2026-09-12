@@ -32,6 +32,13 @@ class LidarPointNode : public rclcpp::Node {
  private:
   void TryInit() {
     sensor_.setTimeout(kIoTimeoutMs);
+    // Defensive: there's no XSHUT wired to this sensor (see
+    // lidar_point_app.inc), so it can't be hard-reset in software - if
+    // it was left running continuous ranging by a previous owner (the
+    // ESP32 firmware, or a previous run of this node), force it back to
+    // single-shot mode before init() reconfigures it, rather than
+    // racing register writes against an active measurement cycle.
+    sensor_.stopContinuous();
     ready_ = sensor_.init();
     if (ready_) {
       sensor_.startContinuous();

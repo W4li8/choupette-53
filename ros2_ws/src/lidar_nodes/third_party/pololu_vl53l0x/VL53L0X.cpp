@@ -314,13 +314,21 @@ void VL53L0X::writeReg32Bit(uint8_t reg, uint32_t value)
 }
 
 // Read an 8-bit register
+//
+// NOTE (Jetson port, not upstream): endTransmission(false) here (and in
+// the other three register-read helpers below) instead of upstream's
+// endTransmission() - see arduino_compat/Wire.h's TwoWire class comment:
+// a plain endTransmission()+requestFrom() as two independent Linux
+// i2c-dev ioctl calls was found unreliable on this Tegra I2C controller
+// (even the fixed model-ID register read came back wrong), fixed by
+// requesting a real combined repeated-start transaction instead.
 uint8_t VL53L0X::readReg(uint8_t reg)
 {
   uint8_t value;
 
   bus->beginTransmission(address);
   bus->write(reg);
-  last_status = bus->endTransmission();
+  last_status = bus->endTransmission(false);
 
   bus->requestFrom(address, (uint8_t)1);
   value = bus->read();
@@ -335,7 +343,7 @@ uint16_t VL53L0X::readReg16Bit(uint8_t reg)
 
   bus->beginTransmission(address);
   bus->write(reg);
-  last_status = bus->endTransmission();
+  last_status = bus->endTransmission(false);  // see readReg()'s comment above
 
   bus->requestFrom(address, (uint8_t)2);
   value  = (uint16_t)bus->read() << 8; // value high byte
@@ -351,7 +359,7 @@ uint32_t VL53L0X::readReg32Bit(uint8_t reg)
 
   bus->beginTransmission(address);
   bus->write(reg);
-  last_status = bus->endTransmission();
+  last_status = bus->endTransmission(false);  // see readReg()'s comment above
 
   bus->requestFrom(address, (uint8_t)4);
   value  = (uint32_t)bus->read() << 24; // value highest byte
@@ -383,7 +391,7 @@ void VL53L0X::readMulti(uint8_t reg, uint8_t * dst, uint8_t count)
 {
   bus->beginTransmission(address);
   bus->write(reg);
-  last_status = bus->endTransmission();
+  last_status = bus->endTransmission(false);  // see readReg()'s comment above
 
   bus->requestFrom(address, count);
 

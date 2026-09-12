@@ -17,6 +17,7 @@ TwoWire Wire(LIDAR_MATRIX_I2C_DEVICE);
 TwoWire::TwoWire(const char *devicePath) : device_path_(devicePath) {}
 
 TwoWire::~TwoWire() {
+  FlushPendingWrite();
   if (fd_ >= 0) {
     close(fd_);
   }
@@ -33,6 +34,7 @@ void TwoWire::begin() {
 }
 
 void TwoWire::beginTransmission(uint8_t address) {
+  FlushPendingWrite();  // shouldn't normally be needed, but defensive
   address_ = address;
   write_buf_.clear();
 }
@@ -45,28 +47,37 @@ void TwoWire::write(uint8_t data) {
   write_buf_.push_back(data);
 }
 
-uint8_t TwoWire::endTransmission(bool /*stop*/) {
-  if (write_buf_.empty()) {
+uint8_t TwoWire::endTransmission(bool stop) {
+  if (!stop) {
+    // Defer: the next requestFrom() will combine this write with the
+    // read into a single ioctl(I2C_RDWR) call (real repeated start) -
+    // see the class comment in Wire.h for why that's required here.
+    write_pending_ = !write_buf_.empty();
     return 0;
   }
-  if (fd_ < 0) {
-    write_buf_.clear();
-    return 1;
+  FlushPendingWrite();
+  return 0;
+}
+
+void TwoWire::FlushPendingWrite() {
+  if (write_buf_.empty()) {
+    write_pending_ = false;
+    return;
   }
+  if (fd_ >= 0) {
+    i2c_msg msg{};
+    msg.addr = address_;
+    msg.flags = 0;
+    msg.len = static_cast<uint16_t>(write_buf_.size());
+    msg.buf = write_buf_.data();
 
-  i2c_msg msg{};
-  msg.addr = address_;
-  msg.flags = 0;
-  msg.len = static_cast<uint16_t>(write_buf_.size());
-  msg.buf = write_buf_.data();
-
-  i2c_rdwr_ioctl_data packets{};
-  packets.msgs = &msg;
-  packets.nmsgs = 1;
-
-  uint8_t result = (ioctl(fd_, I2C_RDWR, &packets) < 0) ? 1 : 0;
+    i2c_rdwr_ioctl_data packets{};
+    packets.msgs = &msg;
+    packets.nmsgs = 1;
+    ioctl(fd_, I2C_RDWR, &packets);
+  }
   write_buf_.clear();
-  return result;
+  write_pending_ = false;
 }
 
 uint8_t TwoWire::requestFrom(uint8_t address, int length, bool /*stop*/) {
@@ -74,20 +85,41 @@ uint8_t TwoWire::requestFrom(uint8_t address, int length, bool /*stop*/) {
   read_pos_ = 0;
   if (fd_ < 0) {
     read_buf_.clear();
+    write_pending_ = false;
+    write_buf_.clear();
     return 0;
   }
 
-  i2c_msg msg{};
-  msg.addr = address;
-  msg.flags = I2C_M_RD;
-  msg.len = static_cast<uint16_t>(length);
-  msg.buf = read_buf_.data();
+  i2c_msg read_msg{};
+  read_msg.addr = address;
+  read_msg.flags = I2C_M_RD;
+  read_msg.len = static_cast<uint16_t>(length);
+  read_msg.buf = read_buf_.data();
 
-  i2c_rdwr_ioctl_data packets{};
-  packets.msgs = &msg;
-  packets.nmsgs = 1;
+  bool combine = write_pending_ && !write_buf_.empty() && address_ == address;
+  int result;
+  if (combine) {
+    i2c_msg write_msg{};
+    write_msg.addr = address_;
+    write_msg.flags = 0;
+    write_msg.len = static_cast<uint16_t>(write_buf_.size());
+    write_msg.buf = write_buf_.data();
 
-  if (ioctl(fd_, I2C_RDWR, &packets) < 0) {
+    i2c_msg msgs[2] = {write_msg, read_msg};
+    i2c_rdwr_ioctl_data packets{};
+    packets.msgs = msgs;
+    packets.nmsgs = 2;
+    result = ioctl(fd_, I2C_RDWR, &packets);
+  } else {
+    i2c_rdwr_ioctl_data packets{};
+    packets.msgs = &read_msg;
+    packets.nmsgs = 1;
+    result = ioctl(fd_, I2C_RDWR, &packets);
+  }
+  write_pending_ = false;
+  write_buf_.clear();
+
+  if (result < 0) {
     read_buf_.clear();
     return 0;
   }
