@@ -11,9 +11,17 @@ platforms = ["linux-aarch64"]
 [feature.ros2.dependencies]
 python = "3.12.*"
 ros-jazzy-ros-base = "*"
+pyserial = "*"
+
+[feature.ros2.tasks]
+chatter = "python3 ros2_chatter_bridge.py"
+chatter_microros = "python3 ros2_chatter_publisher.py"
 
 [feature.platformio.dependencies]
 platformio = "*"
+
+[feature.platformio.tasks]
+microros_agent = "./run_microros_agent.sh"
 
 [environments]
 ros2 = { features = ["ros2"], no-default-feature = true }

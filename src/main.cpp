@@ -14,6 +14,10 @@
   #include "apps/i2c_scan_app.inc"
 #elif defined(APP_OLED_HELLO)
   #include "apps/oled_hello_app.inc"
+#elif defined(APP_CHATTER)
+  #include "apps/chatter_app.inc"
+#elif defined(APP_CHATTER_MICROROS)
+  #include "apps/chatter_microros_app.inc"
 #else
   #error "No app selected. Set APP_RGB, APP_MOTORS, APP_LIDAR_POINT, or APP_LIDAR_MATRIX via build_flags in platformio.ini."
 #endif
