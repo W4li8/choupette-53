@@ -116,14 +116,80 @@ const int CYCLE_STEPS = LOW_HOLD_STEPS + RAMP_UP_STEPS + HIGH_HOLD_STEPS + RAMP_
 
 // Pin setup + LEDC attach for all 4 motors, and NeoPixel init. Call once
 // from setup().
+//
+// Both pins of each motor are LEDC-attached (not just pwmPin, with lowPin
+// as a plain digital output) so setMotorSignedDuty() below can reverse a
+// motor by moving the PWM to whichever pin should carry it, rather than
+// only ever driving pwmPin - lowPin held at 0 duty is electrically the
+// same as a constant digitalWrite LOW, so this doesn't change forward-only
+// behavior for existing callers (runNormalCycleStep, stopMotorsAndSetRed).
 void initMotorsAndLeds() {
   rgb_display_16.begin();
 
   for (int i = 0; i < numMotors; i++) {
-    pinMode(motors[i].lowPin, OUTPUT);
-    digitalWrite(motors[i].lowPin, LOW);
     pwmcAttach(motors[i].pwmPin, PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
+    pwmcAttach(motors[i].lowPin, PWM_FREQ_HZ, PWM_RESOLUTION_BITS);
+    pwmcWrite(motors[i].lowPin, 0);
   }
+}
+
+// Drives one motor at a signed duty in [-DUTY_MAX, DUTY_MAX]: magnitude
+// (with that motor's trim applied) goes on whichever pin corresponds to
+// the requested direction, 0 on the other. Magnitudes below DUTY_MIN are
+// treated as stopped, same floor runNormalCycleStep ramps down to.
+void setMotorSignedDuty(int motorIndex, int signedDuty) {
+  const MotorPins &m = motors[motorIndex];
+  int magnitude = abs(signedDuty);
+  if (magnitude > DUTY_MAX) magnitude = DUTY_MAX;
+  if (magnitude < DUTY_MIN) magnitude = 0;
+  magnitude = round(magnitude * motorDutyTrim[motorIndex]);
+
+  if (signedDuty >= 0) {
+    pwmcWrite(m.pwmPin, magnitude);
+    pwmcWrite(m.lowPin, 0);
+  } else {
+    pwmcWrite(m.pwmPin, 0);
+    pwmcWrite(m.lowPin, magnitude);
+  }
+}
+
+// Differential drive: motors[0..1] (M1,M2) are the left side, motors[2..3]
+// (M3,M4) the right side (see motors[] above). linearX/angularZ are each
+// expected in [-1, 1]; combined and rescaled so neither side ever exceeds
+// +-1 before mapping onto DUTY_MAX, so a hard turn (large angularZ) doesn't
+// get silently clamped asymmetrically.
+void driveDifferential(float linearX, float angularZ) {
+  linearX = constrain(linearX, -1.0f, 1.0f);
+  angularZ = constrain(angularZ, -1.0f, 1.0f);
+
+  float left = linearX - angularZ;
+  float right = linearX + angularZ;
+  float maxMag = max(1.0f, max(fabs(left), fabs(right)));
+  left /= maxMag;
+  right /= maxMag;
+
+  int leftDuty = round(left * DUTY_MAX);
+  int rightDuty = round(right * DUTY_MAX);
+  setMotorSignedDuty(0, leftDuty);   // M1
+  setMotorSignedDuty(1, leftDuty);   // M2
+  setMotorSignedDuty(2, rightDuty);  // M3
+  setMotorSignedDuty(3, rightDuty);  // M4
+}
+
+// Sets all 4 onboard NeoPixels to one color. r/g/b/brightness are each
+// 0..1 (matching std_msgs/ColorRGBA's r/g/b/a floats directly).
+void setRgbColor(float r, float g, float b, float brightness) {
+  r = constrain(r, 0.0f, 1.0f);
+  g = constrain(g, 0.0f, 1.0f);
+  b = constrain(b, 0.0f, 1.0f);
+  brightness = constrain(brightness, 0.0f, 1.0f);
+
+  rgb_display_16.setBrightness(round(brightness * 255));
+  uint32_t color = rgb_display_16.Color(round(r * 255), round(g * 255), round(b * 255));
+  for (int i = 0; i < LED_COUNT; i++) {
+    rgb_display_16.setPixelColor(i, color);
+  }
+  rgb_display_16.show();
 }
 
 // Normal operation: advances the low-ramp-high-ramp cycle by one step,
