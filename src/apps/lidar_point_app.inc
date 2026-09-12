@@ -48,8 +48,15 @@ PointSensorConfig sensorConfigs[] = {
 const int numPointSensors = 1;
 VL53L0X pointSensors[numPointSensors];
 
-const int OBSTACLE_THRESHOLD_MM = 100;  // 10cm
+const int OBSTACLE_THRESHOLD_MM = 100;  // 10cm - hard stop below this
 const int SENSOR_RETRY_INTERVAL_MS = 500;
+
+// Test rig: speed scales with how far away the nearest obstacle is
+// (farther = faster) between OBSTACLE_THRESHOLD_MM (hard stop) and this -
+// at or beyond FULL_SPEED_MM (including the ~8190mm "no target" sentinel
+// below), it's treated as clear to run at full speed. Tune this to taste
+// for whatever test distance is actually available.
+const int FULL_SPEED_MM = 600;  // 60cm
 
 // VL53L0X hardware quirk (confirmed against the Pololu library source,
 // not documentation): when it can't get a valid reading (no target in
@@ -68,6 +75,27 @@ const int SENSOR_RETRY_INTERVAL_MS = 500;
 
 bool allSensorsReady = false;
 unsigned long lastInitAttemptMs = 0;
+
+// Drives straight ahead at a duty proportional to distanceMm (already
+// known to be >= OBSTACLE_THRESHOLD_MM - that case is a hard stop
+// handled by the caller, not by clamping here) - farther means faster,
+// capped at DUTY_MAX from FULL_SPEED_MM on. LED brightness (purple,
+// matching runNormalCycleStep()'s color) tracks speed the same way.
+void driveProportionalToDistance(int distanceMm) {
+  int clampedMm = constrain(distanceMm, OBSTACLE_THRESHOLD_MM, FULL_SPEED_MM);
+  int duty = map(clampedMm, OBSTACLE_THRESHOLD_MM, FULL_SPEED_MM, DUTY_MIN, DUTY_MAX);
+
+  for (int i = 0; i < numMotors; i++) {
+    setMotorSignedDuty(i, duty);
+  }
+
+  int brightness = map(duty, DUTY_MIN, DUTY_MAX, LED_BRIGHTNESS_MIN, LED_BRIGHTNESS_MAX);
+  rgb_display_16.setBrightness(brightness);
+  for (int i = 0; i < LED_COUNT; i++) {
+    rgb_display_16.setPixelColor(i, rgb_display_16.Color(160, 0, 220));  // purple, matches normal cycle
+  }
+  rgb_display_16.show();
+}
 
 // Brings up every sensor and gives each its own address. All-or-
 // nothing: if any sensor fails to respond, every controllable XSHUT is
@@ -138,6 +166,7 @@ void loop() {
 #endif
 
   bool obstacleDetected = false;
+  int nearestMm = FULL_SPEED_MM;  // stays at "clear" if no sensor reads closer
   for (int i = 0; i < numPointSensors; i++) {
     uint16_t distanceMm = pointSensors[i].readRangeContinuousMillimeters();
 
@@ -166,6 +195,9 @@ void loop() {
     if (distanceMm < OBSTACLE_THRESHOLD_MM) {
       obstacleDetected = true;
     }
+    if (distanceMm < nearestMm) {
+      nearestMm = distanceMm;
+    }
   }
 
 #ifdef SERIAL_DEBUG
@@ -184,6 +216,6 @@ void loop() {
   if (obstacleDetected) {
     stopMotorsAndSetRed();
   } else {
-    runNormalCycleStep();
+    driveProportionalToDistance(nearestMm);
   }
 }
