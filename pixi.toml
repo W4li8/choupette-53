@@ -11,11 +11,24 @@ platforms = ["linux-aarch64"]
 [feature.ros2.dependencies]
 python = "3.12.*"
 ros-jazzy-ros-base = "*"
+ros-jazzy-ament-cmake = "*"
+colcon-common-extensions = "*"
 pyserial = "*"
+smbus2 = "*"
+
+[feature.ros2.pypi-dependencies]
+adafruit-circuitpython-vl53l0x = "*"
+adafruit-blinka = "*"
 
 [feature.ros2.tasks]
 chatter = "python3 ros2_chatter_bridge.py"
 chatter_microros = "python3 ros2_chatter_publisher.py"
+lidar_point = "python3 lidar_point_node.py"
+safety_stop = "python3 lidar_safety_stop_node.py"
+lidar_point_tf = "ros2 run tf2_ros static_transform_publisher --frame-id base_link --child-frame-id lidar_i2c_0x29"
+lidar_matrix_tf = "ros2 run tf2_ros static_transform_publisher --frame-id base_link --child-frame-id lidar_i2c_0x33"
+build_ros2_ws = "cd ros2_ws && colcon build --symlink-install"
+lidar_matrix = "./ros2_ws/install/lidar_matrix_node/lib/lidar_matrix_node/lidar_matrix_node"
 
 [feature.platformio.dependencies]
 platformio = "*"
