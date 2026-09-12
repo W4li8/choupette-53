@@ -8,13 +8,19 @@
 # use the prebuilt image instead.
 #
 # Usage: ./run_microros_agent.sh [serial-device]
-#   serial-device defaults to /dev/esp32maker (or $ESP32_SERIAL_PORT).
+#   serial-device defaults to /dev/ttyTHS1 (or $ESP32_SERIAL_PORT) - the
+#   Jetson's header UART1 (physical pins 8 TXD / 10 RXD), wired directly
+#   to the ESP32's dedicated micro-ROS UART (see ros2_control_app.inc).
+#   Pass /dev/esp32maker explicitly for USB-transport apps instead
+#   (chatter_microros_app.inc still uses the USB/CH340 line).
 set -euo pipefail
 
-PORT="${1:-${ESP32_SERIAL_PORT:-/dev/esp32maker}}"
+PORT="${1:-${ESP32_SERIAL_PORT:-/dev/ttyTHS1}}"
 if [ ! -e "$PORT" ]; then
   echo "$PORT not found." >&2
-  echo "Run ../JetsonCortex/install_ch341_driver first, or pass the right" >&2
+  echo "If using the default /dev/ttyTHS1, check the Jetson<->ESP32 UART" >&2
+  echo "wiring; if using /dev/esp32maker, run" >&2
+  echo "../JetsonCortex/install_ch341_driver first - or pass the right" >&2
   echo "serial device as an argument." >&2
   exit 1
 fi

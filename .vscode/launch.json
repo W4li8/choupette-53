@@ -12,35 +12,35 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug",
-            "executable": "/Users/filzak/Workspace/NameTbd/maker-esp32/.pio/build/motors/firmware.elf",
+            "executable": "/home/robot/Workspace/choupette-53/.pio/build/motors/firmware.elf",
             "projectEnvName": "motors",
-            "toolchainBinDir": "/Users/filzak/.platformio/packages/toolchain-xtensa-esp-elf/bin",
+            "toolchainBinDir": "/home/robot/.platformio/packages/toolchain-xtensa-esp-elf/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "/Users/filzak/.platformio/platforms/espressif32/misc/svd/esp32.svd",
+            "svdPath": "/home/robot/.platformio/platforms/espressif32/misc/svd/esp32.svd",
             "preLaunchTask": {
                 "type": "PlatformIO",
-                "task": "Pre-Debug"
+                "task": "Pre-Debug (motors)"
             }
         },
         {
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (skip Pre-Debug)",
-            "executable": "/Users/filzak/Workspace/NameTbd/maker-esp32/.pio/build/motors/firmware.elf",
+            "executable": "/home/robot/Workspace/choupette-53/.pio/build/motors/firmware.elf",
             "projectEnvName": "motors",
-            "toolchainBinDir": "/Users/filzak/.platformio/packages/toolchain-xtensa-esp-elf/bin",
+            "toolchainBinDir": "/home/robot/.platformio/packages/toolchain-xtensa-esp-elf/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "/Users/filzak/.platformio/platforms/espressif32/misc/svd/esp32.svd"
+            "svdPath": "/home/robot/.platformio/platforms/espressif32/misc/svd/esp32.svd"
         },
         {
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (without uploading)",
-            "executable": "/Users/filzak/Workspace/NameTbd/maker-esp32/.pio/build/motors/firmware.elf",
+            "executable": "/home/robot/Workspace/choupette-53/.pio/build/motors/firmware.elf",
             "projectEnvName": "motors",
-            "toolchainBinDir": "/Users/filzak/.platformio/packages/toolchain-xtensa-esp-elf/bin",
+            "toolchainBinDir": "/home/robot/.platformio/packages/toolchain-xtensa-esp-elf/bin",
             "internalConsoleOptions": "openOnSessionStart",
-            "svdPath": "/Users/filzak/.platformio/platforms/espressif32/misc/svd/esp32.svd",
+            "svdPath": "/home/robot/.platformio/platforms/espressif32/misc/svd/esp32.svd",
             "loadMode": "manual"
         }
     ]
