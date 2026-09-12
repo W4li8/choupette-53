@@ -9,6 +9,10 @@
 #include <cstdint>
 #include <thread>
 
+// Arduino core typedef (e.g. used by third_party/pololu_vl53l0x's
+// VL53L0X.h), not a standard C++ type.
+typedef bool boolean;
+
 inline void delay(unsigned long ms) {
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }

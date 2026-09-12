@@ -1,7 +1,8 @@
 // Minimal Arduino TwoWire-compatible shim backed by Linux i2c-dev, just
-// enough for src/apps/dfrobot_matrix_lidar.inc (vendored unmodified from
-// the ESP32 firmware) to run unchanged on the Jetson: begin(),
-// beginTransmission(), write(buf, len), endTransmission()/(bool),
+// enough for the two vendored drivers this package reuses unmodified
+// (src/apps/dfrobot_matrix_lidar.inc and third_party/pololu_vl53l0x) to
+// run unchanged on the Jetson: begin(), beginTransmission(),
+// write(buf, len), write(byte), endTransmission()/(bool),
 // requestFrom(addr, len, bool), read(). Not a general Wire.h
 // replacement.
 #pragma once
@@ -19,6 +20,7 @@ class TwoWire {
   void begin();
   void beginTransmission(uint8_t address);
   void write(const uint8_t *data, size_t length);
+  void write(uint8_t data);
   uint8_t endTransmission(bool stop = true);
   uint8_t requestFrom(uint8_t address, int length, bool stop = true);
   int read();

@@ -41,6 +41,10 @@ void TwoWire::write(const uint8_t *data, size_t length) {
   write_buf_.insert(write_buf_.end(), data, data + length);
 }
 
+void TwoWire::write(uint8_t data) {
+  write_buf_.push_back(data);
+}
+
 uint8_t TwoWire::endTransmission(bool /*stop*/) {
   if (write_buf_.empty()) {
     return 0;

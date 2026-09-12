@@ -1,11 +1,12 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>lidar_matrix_node</name>
+  <name>lidar_nodes</name>
   <version>0.1.0</version>
   <description>
-    ROS2 node for the DFRobot 8x8 Matrix ToF (VL53L7CX) lidar, reusing
-    the ESP32 firmware's vendored I2C protocol driver unmodified.
+    ROS2 nodes for both onboard lidar sensors (VL53L0X single-point and
+    DFRobot 8x8 Matrix ToF/VL53L7CX), each reusing its ESP32 firmware
+    driver unmodified via an Arduino/Wire compatibility shim.
   </description>
   <maintainer email="1filip.4slezak@gmail.com">Filip Slezak</maintainer>
   <license>MIT</license>
